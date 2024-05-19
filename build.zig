@@ -17,14 +17,6 @@ pub fn build(b: *std.Build) void {
     });
     exe.root_module.addImport("pg", pg.module("pg"));
 
-    const zap = b.dependency("zap", .{
-        .target = target,
-        .optimize = optimize,
-        .openssl = false,
-    });
-    exe.root_module.addImport("zap", zap.module("zap"));
-    exe.linkLibrary(zap.artifact("facil.io"));
-
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);

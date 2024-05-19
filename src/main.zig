@@ -16,15 +16,16 @@
 
 const std = @import("std");
 const pg = @import("pg");
-const zap = @import("zap");
+const serve = @import("./serve.zig");
 
-const log = std.log.scoped(.server);
+const log = std.log.scoped(.main);
 
 const query_leaderboard_all = "select u.user_id, u.username, count(*) from votes v join users u on v.submitter = u.internal_user_id group by v.submitter, u.user_id, u.username order by count(*) desc limit 20;";
 
 pub const Data = struct {
     leaderboard_all: LeaderboardAllData,
     path_prefix: []const u8,
+    stylesheet: []const u8,
 };
 
 pub const LeaderboardAllData = struct {
@@ -121,13 +122,20 @@ pub fn main() !void {
 
         data_rows.row_count = i;
 
+        var file = try std.fs.cwd().openFile("public/style.css", .{});
+        defer file.close();
+        const stylesheet = try file.readToEndAlloc(allocator, 16384);
+
         break :builddata Data {
             .leaderboard_all = data_rows,
             .path_prefix = path_prefix,
+            .stylesheet = stylesheet,
         };
     };
 
     defer {
+        allocator.free(data.stylesheet);
+
         for (0..data.leaderboard_all.row_count) |i| {
             const row = data.leaderboard_all.rows[i];
             allocator.free(row.user_id);
@@ -160,51 +168,25 @@ pub fn main() !void {
         defer allocator.free(listen_port);
         const listen_port_number = try std.fmt.parseInt(u16, listen_port, 10);
 
-        // setup listener
-        var listener = zap.Endpoint.Listener.init(
-            allocator,
-            .{
-                .port = listen_port_number,
-                .interface = "127.0.0.1",
-                .on_request = onRequest,
-                .log = true,
-                .public_folder = "public",
-                .max_clients = 100000,
-                .max_body_size = 100 * 1024 * 1024,
-            },
-        );
-        defer listener.deinit();
+        const address = try std.net.Address.resolveIp("127.0.0.1", listen_port_number);
+        var http_server = try address.listen(.{});
+        std.debug.print("Listening on {}\n", .{address});
 
-        // / endpoint
-        var leaderboardAll = @import("./endpoints/LeaderboardAll.zig").init(allocator, "/", &data);
-        defer leaderboardAll.deinit();
+        var read_buffer: [8000]u8 = undefined;
+        accept: while (true) {
+            const connection = try http_server.accept();
+            defer connection.stream.close();
 
-        // register endpoints with the listener
-        try listener.register(leaderboardAll.endpoint());
-
-        // listen
-        try listener.listen();
-        std.debug.print("Listening on 127.0.0.1:{}\n", .{listen_port_number});
-
-        // and run
-        zap.start(.{
-            .threads = 2,
-            .workers = 1,
-        });
-    }
-}
-
-fn onRequest(r: zap.Request) void {
-    r.setStatus(.not_found);
-
-    if (r.method) |method| {
-        if (!std.mem.eql(u8, method, "GET")) {
-            r.sendBody("") catch return;
-            return;
+            var server = std.http.Server.init(connection, &read_buffer);
+            while (server.state == .ready) {
+                var request = server.receiveHead() catch |err| {
+                    std.debug.print("error: {s}\n", .{@errorName(err)});
+                    continue :accept;
+                };
+                try serve.serve(allocator, &data, &request);
+            }
         }
     }
-
-    r.sendBody("<!DOCTYPE html><html><head><meta charset=\"UTF-8\"/><meta name=\"viewport\" content=\"width=device-width\"/><title>Not found – DeArrow locked titles leaderboard</title></head><body><h1>404 Not found</h1></body></html>") catch return;
 }
 
 test {
