@@ -1,0 +1,24 @@
+.{
+    .name = "dearrow-locked-titles-leaderboard",
+    .version = "1.0.0",
+
+    // This field is optional.
+    // This is currently advisory only; Zig does not yet do anything
+    // with this value.
+    //.minimum_zig_version = "0.11.0",
+
+    .dependencies = .{
+        .pg = .{
+            .url = "git+https://github.com/karlseguin/pg.zig#master",
+            .hash = "12207f9d37f48f14e8891846a00412c659a763acf44bf3f4c559610fa5632597537c",
+        },
+    },
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "COPYING",
+        "README.md",
+    },
+}
