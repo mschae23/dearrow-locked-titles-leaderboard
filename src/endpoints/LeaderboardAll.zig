@@ -57,47 +57,15 @@ fn getLeaderboard(e: *zap.Endpoint, r: zap.Request) void {
                 }
 
                 const head_fmt =
-                    \\<!DOCTYPE html>
-                    \\<html>
-                    \\  <head>
-                    \\    <meta charset="UTF-8"/>
-                    \\    <meta name="viewport" content="width=device-width"/>
-                    \\    <title>DeArrow locked titles leaderboard</title>
-                    \\    <link rel="stylesheet" type="text/css" href="{s}style.css">
-                    \\    <link rel="icon" href="https://dearrow.ajay.app/favicon-32x32.png?v=6f203adf3dc83cd564c279fa5c263c62" type="image/png">
-                    \\  </head>
-                    \\  <body>
-                    \\    <header id="title">
-                    \\      <a href="https://dearrow.ajay.app/"><img class="sb-logo" src="https://dearrow.ajay.app/logo.svg"></a>
-                    \\      <h1>DeArrow locked titles leaderboard</h1>
-                    \\    </header>
-                    \\    <table class="userstats">
-                    \\      <tbody>
-                    \\        <tr>
-                    \\          <th>Rank</th>
-                    \\          <th title="User ID is shown where the username is not set.">Username</th>
-                    \\          <th>Count</th>
-                    \\        </tr>
-                    \\
+                    \\<!DOCTYPE html><html><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width"/><title>DeArrow locked titles leaderboard</title><link rel="stylesheet" type="text/css" href="{s}style.css"><link rel="icon" href="https://dearrow.ajay.app/favicon-32x32.png?v=6f203adf3dc83cd564c279fa5c263c62" type="image/png"></head><body><header id="title"><a href="https://dearrow.ajay.app/"><img class="sb-logo" src="https://dearrow.ajay.app/logo.svg"></a><h1>DeArrow locked titles leaderboard</h1></header><div id="main"><table class="userstats"><tbody><tr><th>Rank</th><th title="User ID is shown where the username is not set.">Username</th><th>Count</th></tr>
                     ;
 
                 const row_fmt =
-                    \\        <tr>
-                    \\          <td>{d}</td>
-                    \\          <td><a href="https://dearrow.minibomba.pro/user_id/{s}">{s}</a></td>
-                    \\          <td>{d}</td>
-                    \\        </tr>
+                    \\<tr><td>{d}</td><td><a href="https://dearrow.minibomba.pro/user_id/{s}">{s}</a></td><td>{d}</td></tr>
                     ;
 
                 const tail =
-                    \\       </tbody>
-                    \\    </table>
-                    \\    <footer id="attribution">
-                    \\      Leaderboard data was last updated 2024-05-19 10:49 UTC. Uses DeArrow data licensed used under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> from <a href="https://dearrow.ajay.app/">https://dearrow.ajay.app/</a>.
-                    \\    </footer>
-                    \\  </body>
-                    \\</html>
-                    \\
+                    \\</tbody></table></div><footer id="attribution">Leaderboard data was last updated 2024-05-19 18:27 UTC. Uses DeArrow data licensed used under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> from <a href="https://dearrow.ajay.app/">https://dearrow.ajay.app/</a>.</footer></body></html>
                     ;
 
                 var body = std.ArrayListUnmanaged(u8).initCapacity(self.allocator, head_fmt.len + tail.len) catch |err| {

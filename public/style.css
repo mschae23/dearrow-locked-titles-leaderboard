@@ -24,6 +24,13 @@ header > h1 {
     width: auto;
 }
 
+#main {
+    margin: 0.5rem;
+    padding: 0;
+    display: flex;
+    align-items: center;
+}
+
 table {
     border-collapse: collapse;
     margin: 20px auto;
@@ -50,16 +57,10 @@ th a.hiddenlink {
     text-decoration: none;
 }
 
-th.username {
-    text-align: left;
-    /* Prevent line breaks */
-    white-space: nowrap;
-    overflow: hidden;
-}
-
 td {
     font-weight: normal;
     text-align: left;
+    word-break: break-word;
 }
 
 a {
