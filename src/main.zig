@@ -162,28 +162,45 @@ pub fn main() !void {
     }
 
     {
-        const listen_port = if (try std.process.hasEnvVar(allocator, "LISTEN_PORT"))
-            try std.process.getEnvVarOwned(allocator, "LISTEN_PORT")
-        else "3000";
-        defer allocator.free(listen_port);
-        const listen_port_number = try std.fmt.parseInt(u16, listen_port, 10);
+        var listen_port_number: u16 = 3000;
+
+        if (try std.process.hasEnvVar(allocator, "LISTEN_PORT")) {
+            const listen_port = try std.process.getEnvVarOwned(allocator, "LISTEN_PORT");
+            defer allocator.free(listen_port);
+            listen_port_number = try std.fmt.parseInt(u16, listen_port, 10);
+        }
 
         const address = try std.net.Address.resolveIp("127.0.0.1", listen_port_number);
         var http_server = try address.listen(.{});
         std.debug.print("Listening on {}\n", .{address});
 
+        var connection_arena = std.heap.ArenaAllocator.init(allocator);
+        defer connection_arena.deinit();
+        const connection_allocator = connection_arena.allocator();
+
         var read_buffer: [8000]u8 = undefined;
         accept: while (true) {
+            defer _ = connection_arena.reset(.{.retain_with_limit = 16384});
+
             const connection = try http_server.accept();
             defer connection.stream.close();
 
+            var request_arena = std.heap.ArenaAllocator.init(connection_allocator);
+            defer request_arena.deinit();
+            const request_allocator = request_arena.allocator();
+
             var server = std.http.Server.init(connection, &read_buffer);
             while (server.state == .ready) {
-                var request = server.receiveHead() catch |err| {
-                    std.debug.print("error: {s}\n", .{@errorName(err)});
-                    continue :accept;
+                defer _ = request_arena.reset(.retain_capacity);
+
+                var request = server.receiveHead() catch |err| switch(err) {
+                    error.HttpConnectionClosing => continue :accept,
+                    else => {
+                        std.debug.print("Receive head error: {s}\n", .{@errorName(err)});
+                        continue :accept;
+                    },
                 };
-                try serve.serve(allocator, &data, &request);
+                try serve.serve(request_allocator, &data, &request);
             }
         }
     }

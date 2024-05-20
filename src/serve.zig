@@ -24,16 +24,19 @@ pub const ServeError = std.mem.Allocator.Error || std.http.Server.Response.Write
 
 pub fn serve(allocator: std.mem.Allocator, data: *const root.Data, request: *std.http.Server.Request) ServeError!void {
     if (std.mem.eql(u8, request.head.target, "/")) {
-        const body = body: {
-            errdefer {
-                request.respond("<!DOCTYPE html><html><head><meta charset=\"UTF-8\"/><meta name=\"viewport\" content=\"width=device-width\"/><title>Not found – DeArrow locked titles leaderboard</title></head><body><h1>404 Not found</h1></body></html>", .{
-                    .status = .not_found,
-                    .extra_headers = &.{
-                        .{ .name = "content-type", .value = "text/html", },
-                    },
-                }) catch {};
-            }
+        var send_buffer: [8192]u8 = .{undefined} ** 8192;
 
+        var response = request.respondStreaming(.{
+            .send_buffer = &send_buffer,
+            .respond_options = .{
+                .extra_headers = &.{
+                    .{ .name = "content-type", .value = "text/html", },
+             },
+            }
+        });
+        var writer = response.writer();
+
+        {
             const head_fmt =
                 \\<!DOCTYPE html><html><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width"/><title>DeArrow locked titles leaderboard</title><link rel="stylesheet" type="text/css" href="{s}style.css"><link rel="icon" href="https://dearrow.ajay.app/favicon-32x32.png?v=6f203adf3dc83cd564c279fa5c263c62" type="image/png"></head><body><header id="title"><a href="https://dearrow.ajay.app/"><img class="sb-logo" src="https://dearrow.ajay.app/logo.svg"></a><h1>DeArrow locked titles leaderboard</h1></header><div id="main"><table class="userstats"><tbody><tr><th>Rank</th><th title="User ID is shown where the username is not set.">Username</th><th>Count</th></tr>
                 ;
@@ -46,13 +49,7 @@ pub fn serve(allocator: std.mem.Allocator, data: *const root.Data, request: *std
                 \\</tbody></table></div><footer id="attribution">Leaderboard data was last updated 2024-05-19 18:27 UTC. Uses DeArrow data licensed used under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> from <a href="https://dearrow.ajay.app/">https://dearrow.ajay.app/</a>.</footer></body></html>
                 ;
 
-            var body = std.ArrayListUnmanaged(u8).initCapacity(allocator, head_fmt.len + tail.len) catch |err| {
-                log.err("Error creating array list for response body: {}", .{err});
-                return;
-            };
-            errdefer body.deinit(allocator);
-
-            std.fmt.format(body.writer(allocator), head_fmt, .{data.path_prefix}) catch |err| {
+            std.fmt.format(writer, head_fmt, .{data.path_prefix}) catch |err| {
                 log.err("Error writing into response body: {}", .{err});
                 return;
             };
@@ -61,72 +58,54 @@ pub fn serve(allocator: std.mem.Allocator, data: *const root.Data, request: *std
                 const row = data.leaderboard_all.rows[i];
 
                 const unsanitized_username = if (row.username) |username| username else row.user_id;
-                var replacement_size = std.mem.replacementSize(u8, unsanitized_username, "&", "&amp;");
-                var final_username = std.ArrayListUnmanaged(u8).initCapacity(allocator, replacement_size) catch |err| {
-                    log.err("Error while allocating memory: {}", .{err});
+                var sanitized_username = std.ArrayListUnmanaged(u8).initCapacity(allocator, unsanitized_username.len) catch |err| {
+                    log.err("Error allocating memory: {}", .{err});
                     return;
                 };
-                defer final_username.deinit(allocator);
-                final_username.items.len = replacement_size;
-                _ = std.mem.replace(u8, unsanitized_username, "&", "&amp;", final_username.items);
+                defer sanitized_username.deinit(allocator);
 
-                replacement_size = std.mem.replacementSize(u8, final_username.items, "<", "&lt;");
-                var temp_buf = std.ArrayListUnmanaged(u8).initCapacity(allocator, replacement_size) catch |err| {
-                    log.err("Error while allocating memory: {}", .{err});
-                    return;
-                };
-                defer temp_buf.deinit(allocator);
-                temp_buf.items.len = replacement_size;
-                _ = std.mem.replace(u8, final_username.items, "<", "&lt;", temp_buf.items);
+                for (unsanitized_username) |username_byte| {
+                    switch (username_byte) {
+                        '&' => @memcpy(sanitized_username.addManyAsSlice(allocator, 5) catch |err| {
+                            log.err("Error allocating memory: {}", .{err});
+                            return;
+                        }, "&amp;"),
+                        '<' => @memcpy(sanitized_username.addManyAsSlice(allocator, 4) catch |err| {
+                            log.err("Error allocating memory: {}", .{err});
+                            return;
+                        }, "&lt;"),
+                        '>' => @memcpy(sanitized_username.addManyAsSlice(allocator, 4) catch |err| {
+                            log.err("Error allocating memory: {}", .{err});
+                            return;
+                        }, "&gt;"),
+                        '"' => @memcpy(sanitized_username.addManyAsSlice(allocator, 6) catch |err| {
+                            log.err("Error allocating memory: {}", .{err});
+                            return;
+                        }, "&quot;"),
+                        '\'' => @memcpy(sanitized_username.addManyAsSlice(allocator, 5) catch |err| {
+                            log.err("Error allocating memory: {}", .{err});
+                            return;
+                        }, "&#39;"),
+                        else => (sanitized_username.addOne(allocator) catch |err| {
+                            log.err("Error allocating memory: {}", .{err});
+                            return;
+                        }).* = username_byte,
+                    }
+                }
 
-                replacement_size = std.mem.replacementSize(u8, temp_buf.items, ">", "&gt;");
-                final_username.ensureTotalCapacity(allocator, replacement_size) catch |err| {
-                    log.err("Error while allocating memory: {}", .{err});
-                    return;
-                };
-                final_username.items.len = replacement_size;
-                _ = std.mem.replace(u8, temp_buf.items, ">", "&gt;", final_username.items);
-
-                replacement_size = std.mem.replacementSize(u8, final_username.items, "\"", "&quot;");
-                temp_buf.ensureTotalCapacity(allocator, replacement_size) catch |err| {
-                    log.err("Error while allocating memory: {}", .{err});
-                    return;
-                };
-                temp_buf.items.len = replacement_size;
-                _ = std.mem.replace(u8, final_username.items, "\"", "&quot;", temp_buf.items);
-
-                replacement_size = std.mem.replacementSize(u8, temp_buf.items, "'", "&#39;");
-                final_username.ensureTotalCapacity(allocator, replacement_size) catch |err| {
-                    log.err("Error while allocating memory: {}", .{err});
-                    return;
-                };
-                final_username.items.len = replacement_size;
-                _ = std.mem.replace(u8, temp_buf.items, "'", "&#39;", final_username.items);
-
-                std.fmt.format(body.writer(allocator), row_fmt, .{i + 1, row.user_id, final_username.items, row.count, }) catch |err| {
+                std.fmt.format(writer, row_fmt, .{i + 1, row.user_id, sanitized_username.items, row.count, }) catch |err| {
                     log.err("Error writing into response body: {}", .{err});
                     return;
                 };
             }
 
-            const slice = body.addManyAsSlice(allocator, tail.len) catch |err| {
+            writer.writeAll(tail) catch |err| {
                 log.err("Error writing into response body: {}", .{err});
                 return;
             };
-            @memcpy(slice, tail);
+        }
 
-            break :body body.toOwnedSlice(allocator) catch |err| {
-                log.err("Error finalizing response body: {}", .{err});
-                return;
-            };
-        };
-        defer allocator.free(body);
-
-        try request.respond(body, .{
-            .extra_headers = &.{
-                .{ .name = "content-type", .value = "text/html", },
-            },
-        });
+        try response.end();
         return;
     } else if (std.mem.eql(u8, request.head.target, "/style.css")) {
         try request.respond(data.stylesheet, .{
