@@ -150,17 +150,6 @@ pub fn main() !void {
 
     log.info("Data rows: {d}", .{data.leaderboard_all.row_count});
 
-    for (0..data.leaderboard_all.row_count) |i| {
-        const row = data.leaderboard_all.rows[i];
-        std.debug.print("{s}: {d}", .{row.user_id, row.count});
-
-        if (row.username) |username| {
-            std.debug.print(" ({s})\n", .{username});
-        } else {
-            std.debug.print("\n", .{});
-        }
-    }
-
     {
         var listen_port_number: u16 = 3000;
 
@@ -172,13 +161,13 @@ pub fn main() !void {
 
         const address = try std.net.Address.resolveIp("127.0.0.1", listen_port_number);
         var http_server = try address.listen(.{});
-        std.debug.print("Listening on {}\n", .{address});
+        log.info("Listening on {}", .{address});
 
         var connection_arena = std.heap.ArenaAllocator.init(allocator);
         defer connection_arena.deinit();
         const connection_allocator = connection_arena.allocator();
 
-        var read_buffer: [8000]u8 = undefined;
+        var read_buffer: [8192]u8 = undefined;
         accept: while (true) {
             defer _ = connection_arena.reset(.{.retain_with_limit = 16384});
 
@@ -196,7 +185,7 @@ pub fn main() !void {
                 var request = server.receiveHead() catch |err| switch(err) {
                     error.HttpConnectionClosing => continue :accept,
                     else => {
-                        std.debug.print("Receive head error: {s}\n", .{@errorName(err)});
+                        log.err("Receive head error: {s}", .{@errorName(err)});
                         continue :accept;
                     },
                 };

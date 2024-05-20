@@ -46,7 +46,7 @@ pub fn serve(allocator: std.mem.Allocator, data: *const root.Data, request: *std
                 ;
 
             const tail =
-                \\</tbody></table></div><footer id="attribution">Leaderboard data was last updated 2024-05-19 18:27 UTC. Uses DeArrow data licensed used under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> from <a href="https://dearrow.ajay.app/">https://dearrow.ajay.app/</a>.</footer></body></html>
+                \\</tbody></table></div><footer id="attribution">Leaderboard data was last updated 2024-05-20 22:12 UTC. Uses DeArrow data licensed used under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> from <a href="https://dearrow.ajay.app/">https://dearrow.ajay.app/</a>.</footer></body></html>
                 ;
 
             std.fmt.format(writer, head_fmt, .{data.path_prefix}) catch |err| {
