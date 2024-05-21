@@ -12,6 +12,10 @@
             .url = "git+https://github.com/karlseguin/pg.zig#master",
             .hash = "12207f9d37f48f14e8891846a00412c659a763acf44bf3f4c559610fa5632597537c",
         },
+        .chrono = .{
+            .url = "https://github.com/leroycep/chrono-zig/archive/bedd9339af9b05c240956b137cb1a5b67a9b74b7.tar.gz",
+            .hash = "12200e5959fd68f7b2101eae5b6f23a213712810814cef42f44e112cc7b4f14f0248",
+        },
     },
 
     .paths = .{

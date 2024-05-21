@@ -27,3 +27,6 @@ zig-out/
 
 # VS Code
 .vscode/
+
+# Testing
+last_updated

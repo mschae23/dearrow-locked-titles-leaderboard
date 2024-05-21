@@ -26,6 +26,7 @@ pub const Data = struct {
     leaderboard_all: LeaderboardAllData,
     path_prefix: []const u8,
     stylesheet: []const u8,
+    last_updated: i64,
 };
 
 pub const LeaderboardAllData = struct {
@@ -125,11 +126,18 @@ pub fn main() !void {
         var file = try std.fs.cwd().openFile("public/style.css", .{});
         defer file.close();
         const stylesheet = try file.readToEndAlloc(allocator, 16384);
+        errdefer allocator.free(stylesheet);
+
+        var last_updated_file = try std.fs.cwd().openFile("last_updated", .{});
+        defer last_updated_file.close();
+        const last_updated_timestamp = (try last_updated_file.metadata()).modified();
 
         break :builddata Data {
             .leaderboard_all = data_rows,
             .path_prefix = path_prefix,
             .stylesheet = stylesheet,
+            // Convert from nanoseconds since Unix epoch to seconds since Unix epoch
+            .last_updated = @as(i64, @intCast(@divTrunc(last_updated_timestamp, 1_000_000_000))),
         };
     };
 

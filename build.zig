@@ -17,6 +17,12 @@ pub fn build(b: *std.Build) void {
     });
     exe.root_module.addImport("pg", pg.module("pg"));
 
+    const chrono = b.dependency("chrono", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    exe.root_module.addImport("chrono", chrono.module("chrono"));
+
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
