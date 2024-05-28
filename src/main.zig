@@ -17,6 +17,7 @@
 const std = @import("std");
 const pg = @import("pg");
 const serve = @import("./serve.zig");
+const utils = @import("./utils.zig");
 
 const log = std.log.scoped(.main);
 
@@ -25,7 +26,7 @@ const query_leaderboard_all = "select u.user_id, u.username, count(*) from votes
 pub const Data = struct {
     leaderboard_all: LeaderboardAllData,
     path_prefix: []const u8,
-    stylesheet: []const u8,
+    stylesheet: CachedFile,
     last_updated: i64,
 };
 
@@ -38,6 +39,11 @@ pub const LeaderboardCacheRow = struct {
     user_id: []const u8,
     username: ?[]const u8,
     count: i64,
+};
+
+pub const CachedFile = struct {
+    contents: []const u8,
+    last_modified: i64,
 };
 
 pub fn main() !void {
@@ -123,26 +129,30 @@ pub fn main() !void {
 
         data_rows.row_count = i;
 
-        var file = try std.fs.cwd().openFile("public/style.css", .{});
-        defer file.close();
-        const stylesheet = try file.readToEndAlloc(allocator, 16384);
+        var stylesheet_file = try std.fs.cwd().openFile("public/style.css", .{});
+        defer stylesheet_file.close();
+        const stylesheet = try stylesheet_file.readToEndAlloc(allocator, 16384);
         errdefer allocator.free(stylesheet);
+        const stylesheet_last_modified = try utils.getLastModificationTimeForFile(stylesheet_file);
+        const cached_stylesheet = CachedFile {
+            .contents = stylesheet,
+            .last_modified = stylesheet_last_modified,
+        };
 
         var last_updated_file = try std.fs.cwd().openFile("last_updated", .{});
         defer last_updated_file.close();
-        const last_updated_timestamp = (try last_updated_file.metadata()).modified();
+        const last_updated_timestamp = try utils.getLastModificationTimeForFile(last_updated_file);
 
         break :builddata Data {
             .leaderboard_all = data_rows,
             .path_prefix = path_prefix,
-            .stylesheet = stylesheet,
-            // Convert from nanoseconds since Unix epoch to seconds since Unix epoch
-            .last_updated = @as(i64, @intCast(@divTrunc(last_updated_timestamp, 1_000_000_000))),
+            .stylesheet = cached_stylesheet,
+            .last_updated = last_updated_timestamp,
         };
     };
 
     defer {
-        allocator.free(data.stylesheet);
+        allocator.free(data.stylesheet.contents);
 
         for (0..data.leaderboard_all.row_count) |i| {
             const row = data.leaderboard_all.rows[i];

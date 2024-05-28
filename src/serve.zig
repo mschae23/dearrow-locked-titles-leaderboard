@@ -17,13 +17,81 @@
 const std = @import("std");
 const chrono = @import("chrono");
 const root = @import("./main.zig");
+const utils = @import("./utils.zig");
 
 const log = std.log.scoped(.server);
 
-pub const ServeError = std.mem.Allocator.Error || std.http.Server.Response.WriteError || error { InvalidTime, };
+pub const ServeError = std.mem.Allocator.Error || std.http.Server.Response.WriteError || std.fmt.ParseIntError || utils.FormatHttpDateError;
+
+pub const CACHE_CONTROL = "max-age=86400, stale-while-revalidate=604800";
+pub const FILE_CACHE_CONTROL = "max-age=86400, stale-while-revalidate=604800";
 
 pub fn serve(allocator: std.mem.Allocator, data: *const root.Data, request: *std.http.Server.Request) ServeError!void {
-    if (std.mem.eql(u8, request.head.target, "/")) {
+    const http_date = date: {
+        const timestamp = std.time.timestamp();
+        break :date utils.formatHttpDateAlloc(allocator, timestamp) catch return try request.respond("500 Internal server error", .{
+            .status = .internal_server_error,
+            .extra_headers = &.{
+                .{ .name = "content-type", .value = "text/plain", },
+            },
+        });
+    };
+
+    if (std.mem.eql(u8, request.head.target, "/") and (request.head.method == .GET or request.head.method == .HEAD)) {
+        const modified_days_since_epoch: i32 = @intCast(@divFloor(data.last_updated, std.time.s_per_day));
+        const ymd = chrono.date.YearMonthDay.fromDaysSinceUnixEpoch(modified_days_since_epoch);
+        const time = try chrono.Time.fromNumSecondsFromMidnight(@intCast(@mod(data.last_updated, std.time.s_per_day)), 0);
+
+        const http_last_modified = date: {
+            break :date utils.formatHttpDateAlloc(allocator, data.last_updated) catch return try request.respond("500 Internal server error", .{
+                .status = .internal_server_error,
+                .extra_headers = &.{
+                    .{ .name = "content-type", .value = "text/plain", },
+                },
+            });
+        };
+
+        if (request.head.method == .HEAD) {
+            try request.respond("", .{
+                .extra_headers = &.{
+                    .{ .name = "content-type", .value = "text/html", },
+                    .{ .name = "date", .value = http_date, },
+                    .{ .name = "last-modified", .value = http_last_modified, },
+                    .{ .name = "cache-control", .value = CACHE_CONTROL, },
+                 },
+            });
+        }
+
+        cache: {
+            var headers = request.iterateHeaders();
+
+            while (headers.next()) |header| {
+                if (std.ascii.eqlIgnoreCase(header.name, "if-modified-since")) {
+                    const provided_timestamp = utils.parseHttpDate(header.value) catch return try request.respond("500 Internal server error", .{
+                        .status = .internal_server_error,
+                        .extra_headers = &.{
+                            .{ .name = "content-type", .value = "text/plain", },
+                        },
+                    });
+
+                    if (provided_timestamp >= data.last_updated) {
+                        try request.respond("", .{
+                            .status = .not_modified,
+                            .extra_headers = &.{
+                                .{ .name = "date", .value = http_date, },
+                                .{ .name = "last-modified", .value = http_last_modified, },
+                                .{ .name = "cache-control", .value = CACHE_CONTROL, },
+
+                            },
+                        });
+                        return;
+                    }
+
+                    break :cache;
+                }
+            }
+        }
+
         var send_buffer: [8192]u8 = .{undefined} ** 8192;
 
         var response = request.respondStreaming(.{
@@ -31,6 +99,9 @@ pub fn serve(allocator: std.mem.Allocator, data: *const root.Data, request: *std
             .respond_options = .{
                 .extra_headers = &.{
                     .{ .name = "content-type", .value = "text/html", },
+                    .{ .name = "date", .value = http_date, },
+                    .{ .name = "last-modified", .value = http_last_modified, },
+                    .{ .name = "cache-control", .value = CACHE_CONTROL, },
              },
             }
         });
@@ -46,7 +117,7 @@ pub fn serve(allocator: std.mem.Allocator, data: *const root.Data, request: *std
                 ;
 
             const tail_fmt =
-                \\</tbody></table></div><footer id="attribution"><a href="https://mschae23.de/git/mschae23/dearrow-locked-titles-leaderboard/">DeArrow locked titles leaderboard</a> Copyright (C) 2024 mschae23. Licensed under <a href="https://www.gnu.org/licenses/agpl-3.0.html">GNU AGPL v3</a> (or any later version).<br>Leaderboard data was last updated {s} {s} UTC. Uses DeArrow data licensed used under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> from <a href="https://dearrow.ajay.app/">https://dearrow.ajay.app/</a>.</footer></body></html>
+                \\</tbody></table></div><footer id="attribution"><a href="https://mschae23.de/git/mschae23/dearrow-locked-titles-leaderboard/">DeArrow locked titles leaderboard</a> Copyright (C) 2024 mschae23. Licensed under <a href="https://www.gnu.org/licenses/agpl-3.0.html">GNU AGPL v3</a> (or any later version).<br>Leaderboard data was last updated {s} {s} UTC. Uses DeArrow data licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> from <a href="https://dearrow.ajay.app/">https://dearrow.ajay.app/</a>.</footer></body></html>
                 ;
 
             std.fmt.format(writer, head_fmt, .{data.path_prefix}) catch |err| {
@@ -99,9 +170,6 @@ pub fn serve(allocator: std.mem.Allocator, data: *const root.Data, request: *std
                 };
             }
 
-            const ymd = chrono.date.YearMonthDay.fromDaysSinceUnixEpoch(@intCast(@divFloor(data.last_updated, std.time.s_per_day)));
-            const time = try chrono.Time.fromNumSecondsFromMidnight(@intCast(@mod(data.last_updated, std.time.s_per_day)), 0);
-
             std.fmt.format(writer, tail_fmt, .{ymd, time}) catch |err| {
                 log.err("Error writing into response body: {}", .{err});
                 return;
@@ -111,17 +179,70 @@ pub fn serve(allocator: std.mem.Allocator, data: *const root.Data, request: *std
         try response.end();
         return;
     } else if (std.mem.eql(u8, request.head.target, "/style.css")) {
-        try request.respond(data.stylesheet, .{
+        const http_last_modified = date: {
+            break :date utils.formatHttpDateAlloc(allocator, data.stylesheet.last_modified) catch return try request.respond("500 Internal server error", .{
+                .status = .internal_server_error,
+                .extra_headers = &.{
+                    .{ .name = "content-type", .value = "text/plain", },
+                },
+            });
+        };
+
+        if (request.head.method == .HEAD) {
+            try request.respond("", .{
+                .extra_headers = &.{
+                    .{ .name = "content-type", .value = "text/html", },
+                    .{ .name = "date", .value = http_date, },
+                    .{ .name = "last-modified", .value = http_last_modified, },
+                    .{ .name = "cache-control", .value = FILE_CACHE_CONTROL, },
+                 },
+            });
+        }
+
+        cache: {
+            var headers = request.iterateHeaders();
+
+            while (headers.next()) |header| {
+                if (std.ascii.eqlIgnoreCase(header.name, "if-modified-since")) {
+                    const provided_timestamp = utils.parseHttpDate(header.value) catch return try request.respond("500 Internal server error", .{
+                        .status = .internal_server_error,
+                        .extra_headers = &.{
+                            .{ .name = "content-type", .value = "text/plain", },
+                        },
+                    });
+
+                    if (provided_timestamp >= data.last_updated) {
+                        try request.respond("", .{
+                            .status = .not_modified,
+                            .extra_headers = &.{
+                                .{ .name = "date", .value = http_date, },
+                                .{ .name = "last-modified", .value = http_last_modified, },
+                                .{ .name = "cache-control", .value = FILE_CACHE_CONTROL, },
+
+                            },
+                        });
+                        return;
+                    }
+
+                    break :cache;
+                }
+            }
+        }
+
+        try request.respond(data.stylesheet.contents, .{
             .extra_headers = &.{
                 .{ .name = "content-type", .value = "text/css", },
+                .{ .name = "date", .value = http_date, },
+                .{ .name = "last-modified", .value = http_last_modified, },
+                .{ .name = "cache-control", .value = CACHE_CONTROL, },
             },
         });
     }
 
-    try request.respond("<!DOCTYPE html><html><head><meta charset=\"UTF-8\"/><meta name=\"viewport\" content=\"width=device-width\"/><title>Not found – DeArrow locked titles leaderboard</title></head><body><h1>404 Not found</h1></body></html>", .{
+    try request.respond("404 Not found", .{
         .status = .not_found,
         .extra_headers = &.{
-            .{ .name = "content-type", .value = "text/html", },
+            .{ .name = "content-type", .value = "text/plain", },
         },
     });
 }
