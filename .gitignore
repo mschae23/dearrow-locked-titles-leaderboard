@@ -1,6 +1,5 @@
 # Input files
-locked-titles.json
+build/locked-titles.json
 
 # Output files
-locked-titles-leaderboard
-locked.html
+build/
