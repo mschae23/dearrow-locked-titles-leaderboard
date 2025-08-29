@@ -4,7 +4,7 @@ date := $(shell date --utc +'%Y-%m-%d %H:%M:%S')
 build/locked.html: head.html build/locked.txt build/tail.html
 	awk 'ORS="";{print "<tr><td>" FNR "</td><td><a href=\"https://dearrow.minibomba.pro/user_id/" $$1 "\">" gensub(/\\''/, "\\&#39;", "g", gensub(/"/, "\\&quot;", "g", gensub(/>/, "\\&gt;", "g", gensub(/</, "\\&lt;", "g", $$3)))) "</a></td><td>" $$2 "</td></tr>"}' \
 	build/locked.txt \
-	| cat head.html - tail.html > build/locked.html
+	| cat head.html - build/tail.html > build/locked.html
 
 # Download report messages from Discord
 build/locked-titles.json build/tail.html &:
